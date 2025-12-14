@@ -6,11 +6,22 @@ import pandas as pd
 
 
 class DataLoader:
-    """Handles loading and preprocessing of product data"""
+    """Handles loading and preprocessing of product data.
+    
+    This class provides methods to load product data from CSV files and preprocess
+    it by parsing details and categories columns into usable text features.
+    """
     
     @staticmethod
     def _parse_details(details_value):
-        """Parse details column from string representation of dict to key:value pairs"""
+        """Parse details column from string representation of dict to key:value pairs.
+        
+        Args:
+            details_value: String representation of a dictionary or raw value
+            
+        Returns:
+            Formatted string with key:value pairs or empty string on error
+        """
         if pd.isna(details_value) or details_value == '':
             return ''
         try:
@@ -24,7 +35,14 @@ class DataLoader:
     
     @staticmethod
     def _parse_categories(categories_value):
-        """Parse categories column from string representation of list/array to actual values"""
+        """Parse categories column from string representation of list/array to actual values.
+        
+        Args:
+            categories_value: String representation of a list/tuple or raw value
+            
+        Returns:
+            Space-separated string of categories or empty string on error
+        """
         if pd.isna(categories_value) or categories_value == '':
             return ''
         try:
@@ -37,16 +55,23 @@ class DataLoader:
             return str(categories_value)
     
     def load_data(self, data_path: Path, max_products: Optional[int] = None) -> pd.DataFrame:
-        """Load and prepare product data"""
+        """Load and prepare product data from CSV file with caching support.
+        
+        Args:
+            data_path: Path to the CSV file containing product data
+            max_products: Optional maximum number of products to load (for sampling)
+            
+        Returns:
+            DataFrame with processed product data including text features
+        """
         cache_path = Path(data_path).parent / f'processed_products_{max_products if max_products else "all"}.pkl'
         
         if cache_path.exists():
-            print(f"\nLoading cached processed data from {cache_path}...")
             product_df = pd.read_pickle(cache_path)
-            print(f"Loaded {len(product_df):,} unique products from cache")
+            print(f"Loaded {len(product_df):,} products from cache")
             return product_df
         
-        print(f"\nLoading data from {data_path}...")
+        print(f"Loading data from {data_path}...")
         df = pd.read_csv(data_path)
         print(f"Loaded {len(df):,} products")
         
@@ -64,14 +89,14 @@ class DataLoader:
             'main_category': 'first',
             'average_rating': 'first',
             'rating_number': 'first',
-            'text_features': 'first'
+            'text_features': 'first',
+            'categories': 'first'
         }).reset_index()
         
         product_df['text_features'] = product_df['text_features'].astype(str)
         
         if max_products and len(product_df) > max_products:
-            print(f"Limiting to {max_products:,} products (from {len(product_df):,})")
             product_df = product_df.sample(n=max_products, random_state=42).reset_index(drop=True)
         
-        print(f"Prepared {len(product_df):,} unique products")
+        print(f"Prepared {len(product_df):,} products")
         return product_df
