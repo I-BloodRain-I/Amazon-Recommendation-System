@@ -9,32 +9,28 @@ if TYPE_CHECKING:
 
 
 class SimilarityComputer:
-    """Computes similarity matrices for product embeddings and evaluates recommendations.
-    
-    This class provides methods to compute cosine similarity between products
-    and evaluate recommendation quality using recall and precision metrics.
-    """
+    """Similarity computation and recommendation evaluation."""
     
     def compute_similarity(self, embeddings: np.ndarray) -> np.ndarray:
-        """Compute cosine similarity matrix for all products.
+        """Compute pairwise cosine similarity.
         
         Args:
-            embeddings: Numpy array of product embeddings
+            embeddings: Product embedding vectors (n_products, embedding_dim)
             
         Returns:
-            Numpy array containing pairwise cosine similarity scores
+            Cosine similarity matrix (n_products, n_products)
         """
         similarity_matrix = cosine_similarity(embeddings)
         return similarity_matrix
     
     def _parse_categories(self, categories_str: str) -> List[str]:
-        """Parse categories from string format to list
+        """Parse category string to list.
         
         Args:
-            categories_str: String representation of categories like "['Cat1' 'Cat2' 'Cat3']"
+            categories_str: String representation like "['Cat1' 'Cat2']"
             
         Returns:
-            List of category strings
+            Parsed category strings in hierarchical order
         """
         if pd.isna(categories_str) or categories_str == '':
             return []
@@ -62,14 +58,14 @@ class SimilarityComputer:
             return []
     
     def _get_categories_up_to_level(self, categories: List[str], max_level: int = 2) -> Set[str]:
-        """Get categories up to specified level
+        """Extract categories up to specified hierarchy level.
         
         Args:
-            categories: List of category strings in hierarchical order
-            max_level: Maximum level to include (1-indexed)
+            categories: Hierarchical category list from broad to specific
+            max_level: Maximum depth to include (1-indexed)
             
         Returns:
-            Set of categories up to max_level
+            Set of categories from first N levels
         """
         return set(categories[:max_level]) if categories else set()
     
@@ -85,21 +81,21 @@ class SimilarityComputer:
         reranker: Optional['BGEReranker'] = None,
         rerank_candidates: int = 200
     ) -> Dict[str, float]:
-        """Compute recall and precision metrics for recommendations with optional reranking
+        """Compute recall/precision metrics with optional reranking.
         
         Args:
-            embeddings: Product embeddings array
-            product_df: DataFrame containing product information
-            categories_column: Name of the column containing categories
-            sample_ratio: Ratio of data to use for evaluation (default 0.2 = 20%)
-            max_category_level: Maximum category hierarchy level to consider
-            top_k: Number of similar products to retrieve
-            random_state: Random seed for reproducibility
-            reranker: Optional BGEReranker instance for reranking results
-            rerank_candidates: Number of candidates to retrieve before reranking
+            embeddings: Product embedding vectors (n_products, embedding_dim)
+            product_df: Product metadata with categories
+            categories_column: Column name containing product categories
+            sample_ratio: Fraction of products to evaluate (0.0-1.0)
+            max_category_level: Hierarchy depth for category matching
+            top_k: Number of recommendations per query
+            random_state: Seed for reproducible sampling
+            reranker: BGE reranker instance for result refinement
+            rerank_candidates: Initial candidates before reranking
             
         Returns:
-            Dictionary with recall and precision metrics
+            Dict with 'recall', 'precision', 'f1_score', 'valid_samples'
         """
         if categories_column not in product_df.columns:
             print(f"Error: Column '{categories_column}' not found")

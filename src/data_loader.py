@@ -6,21 +6,17 @@ import pandas as pd
 
 
 class DataLoader:
-    """Handles loading and preprocessing of product data.
-    
-    This class provides methods to load product data from CSV files and preprocess
-    it by parsing details and categories columns into usable text features.
-    """
+    """Product data loading and preprocessing."""
     
     @staticmethod
     def _parse_details(details_value):
-        """Parse details column from string representation of dict to key:value pairs.
+        """Parse details dict to key:value pairs.
         
         Args:
-            details_value: String representation of a dictionary or raw value
+            details_value: String like "{'Brand': 'Sony', 'Color': 'Black'}"
             
         Returns:
-            Formatted string with key:value pairs or empty string on error
+            Space-separated key:value pairs like "Brand:Sony Color:Black"
         """
         if pd.isna(details_value) or details_value == '':
             return ''
@@ -35,13 +31,13 @@ class DataLoader:
     
     @staticmethod
     def _parse_categories(categories_value):
-        """Parse categories column from string representation of list/array to actual values.
+        """Parse categories list to space-separated string.
         
         Args:
-            categories_value: String representation of a list/tuple or raw value
+            categories_value: String like "['Electronics', 'Audio', 'Headphones']"
             
         Returns:
-            Space-separated string of categories or empty string on error
+            Space-separated categories "Electronics Audio Headphones"
         """
         if pd.isna(categories_value) or categories_value == '':
             return ''
@@ -55,14 +51,14 @@ class DataLoader:
             return str(categories_value)
     
     def load_data(self, data_path: Path, max_products: Optional[int] = None) -> pd.DataFrame:
-        """Load and prepare product data from CSV file with caching support.
+        """Load and prepare product data with caching.
         
         Args:
-            data_path: Path to the CSV file containing product data
-            max_products: Optional maximum number of products to load (for sampling)
+            data_path: Path to CSV with product reviews and metadata
+            max_products: Limit number of unique products (for testing)
             
         Returns:
-            DataFrame with processed product data including text features
+            DataFrame with parent_asin, title, category, ratings, text_features
         """
         cache_path = Path(data_path).parent / f'processed_products_{max_products if max_products else "all"}.pkl'
         

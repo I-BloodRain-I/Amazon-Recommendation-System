@@ -2,19 +2,15 @@ from typing import List, Dict
 
 
 class RecommendationDisplay:
-    """Handles displaying product recommendations in a formatted output.
-    
-    This class provides methods to display query products and their recommendations
-    in a readable, formatted console output.
-    """
+    """Formatted recommendation output display."""
     
     def display_recommendations(self, query_product: Dict, similar_products: List[Dict], method: str):
-        """Display product recommendations in a formatted output.
+        """Display formatted product recommendations.
         
         Args:
-            query_product: Dictionary containing query product information
-            similar_products: List of similar products with metadata and scores
-            method: Name of the recommendation method used
+            query_product: Query with parent_asin, title, category, ratings
+            similar_products: Results with rank, similarity, metadata
+            method: Label for recommendation method used
         """
         print(f"\n{'='*80}")
         print(f"Method: {method}")

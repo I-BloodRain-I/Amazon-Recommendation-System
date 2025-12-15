@@ -6,21 +6,19 @@ from sentence_transformers import CrossEncoder
 
 
 class BGEReranker:
-    """Reranker using BGE-reranker-v2-m3 model to refine similarity search results.
+    """BGE-reranker-v2-m3 based product reranking.
     
-    This class uses a CrossEncoder model to rerank candidate products based on
-    their relevance to a query, providing more accurate recommendations.
+    CrossEncoder model for refining similarity search results.
     """
     
     DEFAULT_MODEL_NAME = 'BAAI/bge-reranker-v2-m3'
     
     def __init__(self, model_name: str = DEFAULT_MODEL_NAME, device: str = 'cpu'):
-        """
-        Initialize the reranker with specified model
+        """Initialize BGE reranker model.
         
         Args:
-            model_name: Name of the CrossEncoder model to use
-            device: Device to use ('cpu', 'cuda', 'cuda:0', etc.)
+            model_name: CrossEncoder model name
+            device: Computation device ('cpu', 'cuda', 'cuda:0')
         """
         print(f"Loading reranker model: {model_name} on {device}")
         
@@ -34,16 +32,15 @@ class BGEReranker:
         candidate_texts: List[str], 
         top_k: int = 5
     ) -> List[Dict[str, float]]:
-        """
-        Rerank candidate texts based on relevance to query
+        """Rerank candidates by relevance score.
         
         Args:
-            query_text: Query text
-            candidate_texts: List of candidate texts to rerank
+            query_text: Query string for relevance comparison
+            candidate_texts: List of candidate text descriptions
             top_k: Number of top results to return
             
         Returns:
-            List of dictionaries with indices and scores
+            List of dicts with 'original_index', 'rerank_score', 'rank'
         """
         if not candidate_texts:
             return []
@@ -69,16 +66,15 @@ class BGEReranker:
         candidate_products: List[Dict],
         top_k: int = 5
     ) -> List[Dict]:
-        """
-        Rerank products based on similarity to query product
+        """Rerank products by similarity score.
         
         Args:
-            query_product: Dictionary containing query product information
-            candidate_products: List of candidate products with metadata
+            query_product: Query product with title, category, features
+            candidate_products: Candidate products with metadata
             top_k: Number of top results to return
             
         Returns:
-            List of reranked products with updated scores
+            Top-k products with added 'rerank_score', 'original_rank', 'rank'
         """
         if not candidate_products:
             return []
@@ -100,14 +96,13 @@ class BGEReranker:
         return reranked_products
     
     def _prepare_product_text(self, product: Dict) -> str:
-        """
-        Prepare product text for reranking by combining relevant fields
+        """Combine product fields into text representation.
         
         Args:
-            product: Product dictionary with metadata
+            product: Product dict with title, category, features, description
             
         Returns:
-            Combined text representation of the product
+            Formatted text combining all relevant product fields
         """
         text_parts = []
         

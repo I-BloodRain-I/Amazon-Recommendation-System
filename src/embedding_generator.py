@@ -5,21 +5,17 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 
 
 class EmbeddingGenerator:
-    """Generates embeddings for product text features using TF-IDF or Sentence-BERT.
-    
-    This class provides methods to create embeddings from product text data
-    using either TF-IDF vectorization or Sentence-BERT models.
-    """
+    """TF-IDF and Sentence-BERT embedding generation."""
     
     @staticmethod
     def _sanitize_text(text):
-        """Remove problematic Unicode characters from text.
+        """Remove problematic Unicode characters.
         
         Args:
-            text: Input text string to sanitize
+            text: Input text with potential encoding issues
             
         Returns:
-            Sanitized text string with Unicode errors removed
+            UTF-8 compatible text with errors stripped
         """
         if not isinstance(text, str):
             return ""
@@ -29,14 +25,14 @@ class EmbeddingGenerator:
             return ""
     
     def create_tfidf_embeddings(self, product_df: pd.DataFrame, max_features: int = 5000) -> np.ndarray:
-        """Create TF-IDF embeddings from product text features.
+        """Generate TF-IDF embeddings.
         
         Args:
-            product_df: DataFrame containing product data with text_features column
-            max_features: Maximum number of features for TF-IDF vectorizer
+            product_df: DataFrame with 'text_features' column
+            max_features: Maximum vocabulary size for vectorizer
             
         Returns:
-            Numpy array of TF-IDF embeddings with shape (n_products, max_features)
+            TF-IDF vectors (n_products, max_features)
         """
         print(f"Creating TF-IDF embeddings (max_features={max_features})...")
         
@@ -55,15 +51,15 @@ class EmbeddingGenerator:
         return embeddings
     
     def create_sentence_embeddings(self, product_df: pd.DataFrame, model_name: str = 'all-MiniLM-L6-v2', device: str = 'cpu') -> np.ndarray:
-        """Create Sentence-BERT embeddings from product text features.
+        """Generate Sentence-BERT embeddings.
         
         Args:
-            product_df: DataFrame containing product data with text_features column
-            model_name: Name of the Sentence-BERT model to use
-            device: Device to use for encoding ('cpu', 'cuda', etc.)
+            product_df: DataFrame with 'text_features' column
+            model_name: HuggingFace model identifier (e.g., 'all-mpnet-base-v2')
+            device: 'cpu' or 'cuda' for GPU acceleration
             
         Returns:
-            Numpy array of sentence embeddings with shape (n_products, embedding_dim)
+            Dense embeddings (n_products, embedding_dim)
         """
         print(f"Creating Sentence-BERT embeddings (model={model_name}, device={device})...")
         
@@ -75,15 +71,15 @@ class EmbeddingGenerator:
         return embeddings
     
     def _generate_embeddings_in_batches(self, product_df: pd.DataFrame, model: SentenceTransformer, batch_size: int = 1000) -> np.ndarray:
-        """Generate embeddings in batches to handle large datasets efficiently.
+        """Batch embedding generation for large datasets.
         
         Args:
-            product_df: DataFrame containing product data with text_features column
-            model: Initialized SentenceTransformer model
-            batch_size: Number of samples to process in each batch
+            product_df: DataFrame with 'text_features' column
+            model: Initialized SentenceTransformer instance
+            batch_size: Number of texts to encode per batch
             
         Returns:
-            Numpy array of sentence embeddings
+            Stacked embeddings from all batches (n_products, embedding_dim)
         """
         embeddings_list = []
         
@@ -115,14 +111,14 @@ class EmbeddingGenerator:
         return np.vstack(embeddings_list).astype(np.float32)
     
     def _clean_batch_texts(self, batch_texts: list, start_idx: int) -> list:
-        """Clean and validate batch texts before encoding.
+        """Validate and clean batch texts.
         
         Args:
-            batch_texts: List of text strings to clean
-            start_idx: Starting index of the batch (for error tracking)
+            batch_texts: Raw text strings from DataFrame
+            start_idx: Starting index for error logging
             
         Returns:
-            List of cleaned text strings
+            List with None values converted to empty strings
         """
         clean_batch = []
         for j, t in enumerate(batch_texts):
@@ -133,16 +129,16 @@ class EmbeddingGenerator:
         return clean_batch
     
     def _encode_batch(self, clean_batch: list, model: SentenceTransformer, start_idx: int, end_idx: int) -> np.ndarray:
-        """Encode a batch of texts with error handling.
+        """Encode text batch with error handling.
         
         Args:
-            clean_batch: List of cleaned text strings
-            model: SentenceTransformer model for encoding
-            start_idx: Starting index of the batch
-            end_idx: Ending index of the batch
+            clean_batch: Validated text strings
+            model: SentenceTransformer instance
+            start_idx: Batch start index for logging
+            end_idx: Batch end index for logging
             
         Returns:
-            Numpy array of encoded embeddings
+            Embedding array (batch_size, embedding_dim)
         """
         try:
             return model.encode(clean_batch, show_progress_bar=False, convert_to_numpy=True)
@@ -151,15 +147,15 @@ class EmbeddingGenerator:
             return self._encode_batch_one_by_one(clean_batch, model, start_idx)
     
     def _encode_batch_one_by_one(self, clean_batch: list, model: SentenceTransformer, start_idx: int) -> np.ndarray:
-        """Encode texts one by one when batch encoding fails.
+        """Fallback to individual encoding on batch failure.
         
         Args:
-            clean_batch: List of cleaned text strings
-            model: SentenceTransformer model for encoding
-            start_idx: Starting index of the batch (for error tracking)
+            clean_batch: Text strings that failed batch encoding
+            model: SentenceTransformer instance
+            start_idx: Starting index for error logging
             
         Returns:
-            Numpy array of encoded embeddings (with zeros for failed encodings)
+            Embedding array with zero vectors for failed items
         """
         batch_embeddings_list = []
         for j, text in enumerate(clean_batch):

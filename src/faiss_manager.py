@@ -7,11 +7,7 @@ from typing import Optional, Dict, List, Tuple
 
 
 class FAISSManager:
-    """Manages FAISS index for efficient similarity search with metadata storage.
-    
-    This class handles creation, loading, saving, and searching of FAISS indices
-    with associated product metadata for fast similarity search operations.
-    """
+    """FAISS index management with metadata storage."""
     
     FLOAT_DTYPE = 'float32'
     IVF_MAX_NLIST = 100
@@ -22,7 +18,7 @@ class FAISSManager:
     INVALID_INDEX = -1
     
     def __init__(self):
-        """Initialize FAISSManager with empty index and metadata."""
+        """Initialize empty FAISS index."""
         self.index = None
         self.metadata = None
         self.dimension = None
@@ -36,14 +32,13 @@ class FAISSManager:
         index_type: str = 'flatl2', 
         use_gpu: bool = False
     ) -> None:
-        """
-        Create FAISS index from embeddings with metadata
+        """Create FAISS index from embeddings.
         
         Args:
-            embeddings: numpy array of shape (n_samples, embedding_dim)
-            product_df: DataFrame containing product metadata
-            index_type: Type of FAISS index ('flatl2', 'flatip', 'ivfflat', 'hnsw')
-            use_gpu: Whether to use GPU for indexing (if available)
+            embeddings: Product vectors (n_products, embedding_dim)
+            product_df: Product metadata for storage with index
+            index_type: 'flatl2', 'flatip', 'ivfflat', or 'hnsw'
+            use_gpu: Transfer index to GPU memory if available
         """
         print(f"Creating FAISS index (type={index_type})...")
         
@@ -86,16 +81,15 @@ class FAISSManager:
         top_k: int = 5, 
         category_filter: Optional[str] = None
     ) -> List[Dict]:
-        """
-        Search for similar vectors in the index
+        """Search similar vectors with optional category filter.
         
         Args:
-            query_embedding: Query vector (1D array)
-            top_k: Number of results to return
-            category_filter: Optional category to filter results
+            query_embedding: Query vector (embedding_dim,)
+            top_k: Number of nearest neighbors to return
+            category_filter: Only return products from this category
             
         Returns:
-            List of dictionaries containing results with metadata
+            Products with similarity scores, distances, and metadata
         """
         if self.index is None:
             raise ValueError("Index not created. Call create_index first.")
@@ -139,16 +133,15 @@ class FAISSManager:
         top_k: int = 5, 
         same_category_only: bool = False
     ) -> List[Dict]:
-        """
-        Search for similar products using an index from the dataset
+        """Search similar products by dataset index.
         
         Args:
-            query_idx: Index of the query product in the original dataset
-            top_k: Number of results to return (excluding the query itself)
-            same_category_only: Whether to filter by same category
+            query_idx: Index of query product in original dataset
+            top_k: Number of similar products (excluding query itself)
+            same_category_only: Filter results to matching category
             
         Returns:
-            List of dictionaries containing results with metadata
+            Similar products with scores, excluding query product
         """
         if self.index is None:
             raise ValueError("Index not created. Call create_index first.")
@@ -165,11 +158,10 @@ class FAISSManager:
         return results[:top_k]
     
     def save(self, save_path: Path) -> None:
-        """
-        Save FAISS index and metadata to disk
+        """Save index and metadata to disk.
         
         Args:
-            save_path: Path to save the index (without extension)
+            save_path: Base path (extensions .index and .pkl added automatically)
         """
         if self.index is None:
             raise ValueError("No index to save. Call create_index first.")
@@ -191,11 +183,10 @@ class FAISSManager:
         print(f"Saved index to {index_path}")
     
     def load(self, load_path: Path) -> None:
-        """
-        Load FAISS index and metadata from disk
+        """Load index and metadata from disk.
         
         Args:
-            load_path: Path to load the index from (without extension)
+            load_path: Base path (looks for .index and .pkl files)
         """
         load_path = Path(load_path)
         
@@ -212,11 +203,10 @@ class FAISSManager:
         print(f"Loaded index: {self.index.ntotal} vectors, dim={self.dimension}, type={self.index_type}")
     
     def get_statistics(self) -> Dict:
-        """Get statistics about the FAISS index.
+        """Return index statistics.
         
         Returns:
-            Dictionary containing index statistics including total vectors,
-            dimension, type, metadata entries, and training status
+            Dict with total_vectors, dimension, index_type, metadata_entries
         """
         if self.index is None:
             return {}
@@ -230,11 +220,10 @@ class FAISSManager:
         }
     
     def get_processed_product_ids(self) -> set:
-        """
-        Get set of product IDs that are already in the index
+        """Return set of indexed product IDs.
         
         Returns:
-            Set of parent_asin values currently in the index
+            Set of parent_asin values currently in index
         """
         if self.metadata is None:
             return set()
@@ -245,12 +234,11 @@ class FAISSManager:
         new_embeddings: np.ndarray,
         new_product_df: pd.DataFrame
     ) -> None:
-        """
-        Add new products to existing FAISS index
+        """Add new products to existing index.
         
         Args:
-            new_embeddings: numpy array of new embeddings to add
-            new_product_df: DataFrame containing new product metadata
+            new_embeddings: Vectors for new products (n_new, embedding_dim)
+            new_product_df: Metadata for new products matching embeddings
         """
         if self.index is None:
             raise ValueError("Index not created. Call create_index first.")

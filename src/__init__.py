@@ -1,9 +1,3 @@
-"""Amazon Recommendation System package.
-
-This package provides a complete recommendation system using FAISS
-for efficient similarity search with BGE reranking.
-"""
-
 from .recommender import ProductRecommender
 from .data_loader import DataLoader
 from .embedding_generator import EmbeddingGenerator
