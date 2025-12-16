@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 class SimilarityComputer:
     """Similarity computation and recommendation evaluation."""
     
+    __slots__ = ()
+    
     def compute_similarity(self, embeddings: np.ndarray) -> np.ndarray:
         """Compute pairwise cosine similarity.
         
@@ -69,6 +71,130 @@ class SimilarityComputer:
         """
         return set(categories[:max_level]) if categories else set()
     
+    def _filter_by_rating_weight(self, candidates: List[Dict]) -> List[Dict]:
+        """Filter candidates by rating weight and rating threshold.
+        
+        Args:
+            candidates: List of candidate products with ratings
+            
+        Returns:
+            Filtered list of candidates (top 10% by weight, rating > 3)
+        """
+        for candidate in candidates:
+            avg_rating = candidate.get('average_rating', 0)
+            rating_num = candidate.get('rating_number', 0)
+            
+            if pd.isna(avg_rating):
+                avg_rating = 0
+            if pd.isna(rating_num):
+                rating_num = 0
+            
+            candidate['weight'] = float(avg_rating) * float(rating_num)
+        
+        candidates_sorted = sorted(candidates, key=lambda x: x['weight'], reverse=True)
+        target_count = max(1, int(len(candidates) * 0.1))
+
+        top_candidates = candidates_sorted[:target_count]
+        replacement_pool = candidates_sorted[target_count:]
+        
+        final_candidates = []
+        replacement_index = 0
+        
+        for candidate in top_candidates:
+            if candidate.get('average_rating', 0) > 3:
+                final_candidates.append(candidate)
+            else:
+                replaced = False
+                while replacement_index < len(replacement_pool):
+                    replacement = replacement_pool[replacement_index]
+                    replacement_index += 1
+                    if replacement.get('average_rating', 0) > 3:
+                        final_candidates.append(replacement)
+                        replaced = True
+                        break
+                
+                if not replaced:
+                    final_candidates.append(candidate)
+        
+        return final_candidates
+    
+    def _batch_rerank_for_evaluation(
+        self,
+        sample_indices: np.ndarray,
+        similarity_matrix: np.ndarray,
+        product_df: pd.DataFrame,
+        reranker: 'BGEReranker',
+        rerank_candidates: int,
+        top_k: int,
+        batch_size: int = 32
+    ) -> List[np.ndarray]:
+        """Batch process reranking for all evaluation samples.
+        
+        Args:
+            sample_indices: Indices of samples to evaluate
+            similarity_matrix: Precomputed similarity matrix
+            product_df: Product dataframe
+            reranker: BGE reranker instance
+            rerank_candidates: Number of candidates before reranking
+            top_k: Final number of recommendations
+            batch_size: Number of queries to batch together
+            
+        Returns:
+            List of top-k indices arrays (one per sample)
+        """
+        all_top_k_indices = []
+        n_samples = len(sample_indices)
+        initial_k = min(rerank_candidates, len(product_df) - 1)
+        
+        print(f"Batch reranking {n_samples} queries (batch_size={batch_size})...")
+        
+        for batch_start in range(0, n_samples, batch_size):
+            batch_end = min(batch_start + batch_size, n_samples)
+            batch_indices = sample_indices[batch_start:batch_end]
+            
+            if (batch_end) % 200 == 0 or batch_end == n_samples:
+                print(f"Reranking batch {batch_end}/{n_samples}")
+            
+            query_texts = []
+            candidate_texts_list = []
+            candidate_idx_mapping = []
+            
+            for idx in batch_indices:
+                similarities = similarity_matrix[idx].copy()
+                similarities[idx] = -np.inf
+                initial_indices = np.argsort(similarities)[-initial_k:][::-1]
+                
+                candidates = []
+                for candidate_idx in initial_indices:
+                    candidate = product_df.iloc[candidate_idx].to_dict()
+                    candidate['similarity'] = float(similarities[candidate_idx])
+                    candidate['_index'] = candidate_idx
+                    candidates.append(candidate)
+                
+                filtered_candidates = self._filter_by_rating_weight(candidates)
+                
+                query_product = product_df.iloc[idx].to_dict()
+                query_text = reranker._prepare_product_text(query_product)
+                query_texts.append(query_text)
+                
+                candidate_texts = []
+                candidate_indices = []
+                for candidate in filtered_candidates:
+                    candidate_text = reranker._prepare_product_text(candidate)
+                    candidate_texts.append(candidate_text)
+                    candidate_indices.append(candidate['_index'])
+                
+                candidate_texts_list.append(candidate_texts)
+                candidate_idx_mapping.append(candidate_indices)
+            
+            batch_results = reranker.rerank_batch(query_texts, candidate_texts_list, top_k)
+            
+            for results, candidate_indices in zip(batch_results, candidate_idx_mapping):
+                top_k_indices = np.array([candidate_indices[r['original_index']] for r in results])
+                all_top_k_indices.append(top_k_indices)
+        
+        return all_top_k_indices
+    
     def compute_metrics(
         self, 
         embeddings: np.ndarray, 
@@ -79,7 +205,8 @@ class SimilarityComputer:
         top_k: int = 10,
         random_state: int = 42,
         reranker: Optional['BGEReranker'] = None,
-        rerank_candidates: int = 200
+        rerank_candidates: int = 200,
+        rerank_batch_size: int = 32
     ) -> Dict[str, float]:
         """Compute recall/precision metrics with optional reranking.
         
@@ -92,7 +219,8 @@ class SimilarityComputer:
             top_k: Number of recommendations per query
             random_state: Seed for reproducible sampling
             reranker: BGE reranker instance for result refinement
-            rerank_candidates: Initial candidates before reranking
+            rerank_candidates: Initial candidates before reranking (reduce for speed)
+            rerank_batch_size: Number of queries to batch for reranking (larger=faster)
             
         Returns:
             Dict with 'recall', 'precision', 'f1_score', 'valid_samples'
@@ -117,6 +245,14 @@ class SimilarityComputer:
         
         similarity_matrix = cosine_similarity(embeddings)
         
+        if reranker is not None:
+            all_top_k_indices = self._batch_rerank_for_evaluation(
+                sample_indices, similarity_matrix, product_df, reranker, 
+                rerank_candidates, top_k, rerank_batch_size
+            )
+        else:
+            all_top_k_indices = None
+        
         for i, idx in enumerate(sample_indices):
             if (i + 1) % 200 == 0:
                 print(f"Processed {i+1}/{n_samples}")
@@ -128,23 +264,11 @@ class SimilarityComputer:
             if not query_cats_set:
                 continue
             
-            similarities = similarity_matrix[idx].copy()
-            similarities[idx] = -np.inf
-            
-            if reranker is not None:
-                initial_k = min(rerank_candidates, len(product_df) - 1)
-                initial_indices = np.argsort(similarities)[-initial_k:][::-1]
-                
-                query_product = product_df.iloc[idx].to_dict()
-                candidate_products = []
-                for candidate_idx in initial_indices:
-                    candidate = product_df.iloc[candidate_idx].to_dict()
-                    candidate['_index'] = candidate_idx
-                    candidate_products.append(candidate)
-                
-                reranked = reranker.rerank_products(query_product, candidate_products, top_k)
-                top_k_indices = np.array([prod['_index'] for prod in reranked])
+            if reranker is not None and all_top_k_indices is not None:
+                top_k_indices = all_top_k_indices[i]
             else:
+                similarities = similarity_matrix[idx].copy()
+                similarities[idx] = -np.inf
                 top_k_indices = np.argsort(similarities)[-top_k:][::-1]
             
             relevant_in_recommendations = 0
@@ -154,7 +278,6 @@ class SimilarityComputer:
                 rec_categories_str = product_df.iloc[rec_idx][categories_column]
                 rec_categories = self._parse_categories(rec_categories_str)
                 
-                # ALL levels up to max_category_level must match (or up to available levels)
                 is_relevant = True
                 levels_to_compare = min(len(query_categories), len(rec_categories), max_category_level)
                 
@@ -175,7 +298,6 @@ class SimilarityComputer:
                 other_categories_str = product_df.iloc[j][categories_column]
                 other_categories = self._parse_categories(other_categories_str)
                 
-                # ALL levels up to max_category_level must match (or up to available levels)
                 is_match = True
                 levels_to_compare = min(len(query_categories), len(other_categories), max_category_level)
                 

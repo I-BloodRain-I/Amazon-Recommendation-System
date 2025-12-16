@@ -60,6 +60,58 @@ class BGEReranker:
         
         return results
     
+    def rerank_batch(
+        self,
+        query_texts: List[str],
+        candidate_texts_list: List[List[str]],
+        top_k: int = 5
+    ) -> List[List[Dict[str, float]]]:
+        """Batch rerank multiple queries at once for better performance.
+        
+        Args:
+            query_texts: List of query strings
+            candidate_texts_list: List of candidate text lists (one per query)
+            top_k: Number of top results to return per query
+            
+        Returns:
+            List of reranked results (one per query)
+        """
+        if not query_texts:
+            return []
+        
+        all_pairs = []
+        pair_indices = []
+        
+        for query_idx, (query_text, candidate_texts) in enumerate(zip(query_texts, candidate_texts_list)):
+            start_idx = len(all_pairs)
+            for candidate_text in candidate_texts:
+                all_pairs.append([query_text, candidate_text])
+            end_idx = len(all_pairs)
+            pair_indices.append((start_idx, end_idx, len(candidate_texts)))
+        
+        if not all_pairs:
+            return [[] for _ in query_texts]
+        
+        all_scores = self.model.predict(all_pairs)
+        
+        results_list = []
+        for query_idx, (start_idx, end_idx, num_candidates) in enumerate(pair_indices):
+            scores = all_scores[start_idx:end_idx]
+            
+            ranked_indices = np.argsort(scores)[::-1][:top_k]
+            
+            results = []
+            for rank, idx in enumerate(ranked_indices, 1):
+                results.append({
+                    'original_index': int(idx),
+                    'rerank_score': float(scores[idx]),
+                    'rank': rank
+                })
+            
+            results_list.append(results)
+        
+        return results_list
+    
     def rerank_products(
         self,
         query_product: Dict,
@@ -79,10 +131,14 @@ class BGEReranker:
         if not candidate_products:
             return []
         
-        query_text = self._prepare_product_text(query_product)
-        candidate_texts = [self._prepare_product_text(prod) for prod in candidate_products]
-        
-        rerank_results = self.rerank(query_text, candidate_texts, top_k)
+        if len(candidate_products) <= top_k:
+            query_text = self._prepare_product_text(query_product)
+            candidate_texts = [self._prepare_product_text(prod) for prod in candidate_products]
+            rerank_results = self.rerank(query_text, candidate_texts, len(candidate_products))
+        else:
+            query_text = self._prepare_product_text(query_product)
+            candidate_texts = [self._prepare_product_text(prod) for prod in candidate_products]
+            rerank_results = self.rerank(query_text, candidate_texts, top_k)
         
         reranked_products = []
         for result in rerank_results:

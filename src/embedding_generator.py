@@ -50,22 +50,23 @@ class EmbeddingGenerator:
         
         return embeddings
     
-    def create_sentence_embeddings(self, product_df: pd.DataFrame, model_name: str = 'all-MiniLM-L6-v2', device: str = 'cpu') -> np.ndarray:
+    def create_sentence_embeddings(self, product_df: pd.DataFrame, model_name: str = 'all-MiniLM-L6-v2', device: str = 'cpu', batch_size: int = 1000) -> np.ndarray:
         """Generate Sentence-BERT embeddings.
         
         Args:
             product_df: DataFrame with 'text_features' column
             model_name: HuggingFace model identifier (e.g., 'all-mpnet-base-v2')
             device: 'cpu' or 'cuda' for GPU acceleration
+            batch_size: Number of texts to encode per batch
             
         Returns:
             Dense embeddings (n_products, embedding_dim)
         """
-        print(f"Creating Sentence-BERT embeddings (model={model_name}, device={device})...")
+        print(f"Creating Sentence-BERT embeddings (model={model_name}, device={device}, batch_size={batch_size})...")
         
         model = SentenceTransformer(model_name, device=device)
         
-        embeddings = self._generate_embeddings_in_batches(product_df, model)
+        embeddings = self._generate_embeddings_in_batches(product_df, model, batch_size)
         
         print(f"Embeddings shape: {embeddings.shape}")
         return embeddings

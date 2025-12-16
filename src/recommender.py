@@ -65,17 +65,18 @@ class ProductRecommender:
         )
         return self.embeddings
     
-    def create_sentence_embeddings(self, model_name: str = 'all-MiniLM-L6-v2') -> np.ndarray:
+    def create_sentence_embeddings(self, model_name: str = 'all-MiniLM-L6-v2', batch_size: int = 1000) -> np.ndarray:
         """Generate Sentence-BERT embeddings.
         
         Args:
             model_name: HuggingFace model (e.g., 'all-mpnet-base-v2')
+            batch_size: Number of texts to encode per batch
             
         Returns:
             Dense embeddings (n_products, embedding_dim)
         """
         self.embeddings = self.embedding_generator.create_sentence_embeddings(
-            self.product_df, model_name, device=self.device
+            self.product_df, model_name, device=self.device, batch_size=batch_size
         )
         return self.embeddings
     
@@ -251,49 +252,12 @@ class ProductRecommender:
         """
         return self.faiss_manager.get_statistics()
     
-    def evaluate_recommendations(
-        self, 
-        categories_column: str = 'categories',
-        sample_ratio: float = 0.2,
-        max_category_level: int = 2,
-        top_k: int = 10,
-        random_state: int = 42
-    ) -> Dict[str, float]:
-        """Evaluate recommendations using recall/precision metrics.
-        
-        Args:
-            categories_column: Column with hierarchical categories
-            sample_ratio: Fraction of products to evaluate (0.0-1.0)
-            max_category_level: Category depth for matching
-            top_k: Number of recommendations per query
-            random_state: Seed for reproducibility
-            
-        Returns:
-            Dict with 'recall', 'precision', 'f1_score', 'valid_samples'
-        """
-        if self.embeddings is None:
-            raise ValueError("No embeddings available.")
-        
-        if self.product_df is None:
-            raise ValueError("No product data available.")
-        
-        return self.similarity_computer.compute_metrics(
-            embeddings=self.embeddings,
-            product_df=self.product_df,
-            categories_column=categories_column,
-            sample_ratio=sample_ratio,
-            max_category_level=max_category_level,
-            top_k=top_k,
-            random_state=random_state,
-            reranker=self.reranker,
-            rerank_candidates=self.rerank_candidates
-        )
-    
     def check_and_add_new_products(
         self,
         data_path: Path,
         model_name: str = DEFAULT_MODEL_NAME,
-        max_products: Optional[int] = None
+        max_products: Optional[int] = None,
+        batch_size: int = 1000
     ) -> Dict:
         """Add new products to existing index.
         
@@ -301,6 +265,7 @@ class ProductRecommender:
             data_path: CSV file with product data
             model_name: Model for generating new embeddings
             max_products: Limit total products loaded
+            batch_size: Number of texts to encode per batch
             
         Returns:
             Dict with new_products_found, new_products_added, total_products_after
@@ -330,7 +295,7 @@ class ProductRecommender:
         from sentence_transformers import SentenceTransformer
         model = SentenceTransformer(model_name, device=self.device)
         new_embeddings = self.embedding_generator._generate_embeddings_in_batches(
-            new_products_df, model
+            new_products_df, model, batch_size
         )
         
         self.faiss_manager.add_products(new_embeddings, new_products_df)
