@@ -18,17 +18,27 @@ class ProductRecommender:
     DEFAULT_MODEL_NAME = 'all-mpnet-base-v2'
     FIRST_ELEMENT = 0
     DEFAULT_RERANK_CANDIDATES = 200
+    DEFAULT_RATING_FILTER_RATIO = 0.1
     
     def __init__(
         self, 
         reranker_model: str = 'BAAI/bge-reranker-v2-m3', 
         rerank_candidates: int = DEFAULT_RERANK_CANDIDATES, 
+        rating_filter_ratio: float = DEFAULT_RATING_FILTER_RATIO,
         device: str = 'cpu'
     ):
-        """Initialize recommender with reranker model."""
+        """Initialize recommender with reranker model.
+        
+        Args:
+            reranker_model: BGE reranker model name
+            rerank_candidates: Number of initial candidates to retrieve
+            rating_filter_ratio: Fraction of candidates to keep after rating filtering (e.g., 0.1 = top 10%)
+            device: Computation device ('cpu' or 'cuda')
+        """
         self.product_df = None
         self.embeddings = None
         self.rerank_candidates = rerank_candidates
+        self.rating_filter_ratio = rating_filter_ratio
         self.device = device
         
         self.data_loader = DataLoader()
@@ -110,7 +120,7 @@ class ProductRecommender:
         initial_k = self.rerank_candidates
         results = self.faiss_manager.search_by_index(query_idx, initial_k, same_category_only)
         
-        filtered_results = self._filter_by_rating_weight(results)
+        filtered_results = self._filter_by_rating_weight(results, top_k)
         
         query_product = self.product_df.iloc[query_idx].to_dict()
         results = self.reranker.rerank_products(query_product, filtered_results, top_k)
@@ -127,14 +137,15 @@ class ProductRecommender:
             'original_rank': result.get('original_rank', None)
         } for result in results]
     
-    def _filter_by_rating_weight(self, candidates: List[Dict]) -> List[Dict]:
+    def _filter_by_rating_weight(self, candidates: List[Dict], top_k: int = 5) -> List[Dict]:
         """Filter candidates by rating weight and rating threshold.
         
         Args:
             candidates: List of candidate products with ratings
+            top_k: Minimum number of candidates to keep
             
         Returns:
-            Filtered list of candidates (top 10% by weight, rating > 3)
+            Filtered list of candidates (ensures at least top_k are available)
         """
         for candidate in candidates:
             avg_rating = candidate.get('average_rating', 0)
@@ -148,7 +159,8 @@ class ProductRecommender:
             candidate['weight'] = float(avg_rating) * float(rating_num)
         
         candidates_sorted = sorted(candidates, key=lambda x: x['weight'], reverse=True)
-        target_count = max(1, int(len(candidates) * 0.1))
+        ratio_based_count = int(len(candidates) * self.rating_filter_ratio)
+        target_count = max(top_k, max(1, ratio_based_count))
 
         top_candidates = candidates_sorted[:target_count]
         replacement_pool = candidates_sorted[target_count:]
@@ -174,16 +186,15 @@ class ProductRecommender:
         
         return final_candidates
     
-    def display_recommendations(self, query_idx: int, similar_products: List[Dict], method: str):
+    def display_recommendations(self, query_idx: int, similar_products: List[Dict]):
         """Display formatted recommendations.
         
         Args:
             query_idx: Index of query product
             similar_products: List from find_similar_products()
-            method: Display label (e.g., 'FAISS', 'BGE Reranked')
         """
         query_product = self.product_df.iloc[query_idx].to_dict()
-        self.display.display_recommendations(query_product, similar_products, method)
+        self.display.display_recommendations(query_product, similar_products)
     
     def search_text(self, query_text: str, top_k: int = 5, 
                    category_filter: Optional[str] = None) -> List[Dict]:
@@ -273,24 +284,22 @@ class ProductRecommender:
         if self.faiss_manager.index is None:
             raise ValueError("FAISS index not loaded. Call load_index first.")
         
-        print("Checking for new products...")
-        
         current_product_ids = self.faiss_manager.get_processed_product_ids()
         all_products_df = self.data_loader.load_data(data_path, max_products)
-        print(f"Current: {len(current_product_ids):,}, Total: {len(all_products_df):,}")
+        print(f"Checking for new products... Current: {len(current_product_ids):,}, Total: {len(all_products_df):,}")
         
         new_products_mask = ~all_products_df['parent_asin'].isin(current_product_ids)
         new_products_df = all_products_df[new_products_mask].reset_index(drop=True)
         
         if len(new_products_df) == 0:
-            print("No new products found")
+            print("No new products")
             return {
                 'new_products_found': 0,
                 'new_products_added': 0,
                 'total_products_after': len(current_product_ids)
             }
         
-        print(f"Found {len(new_products_df):,} new products, generating embeddings...")
+        print(f"Adding {len(new_products_df):,} new products...")
         
         from sentence_transformers import SentenceTransformer
         model = SentenceTransformer(model_name, device=self.device)
@@ -302,8 +311,6 @@ class ProductRecommender:
         
         self.product_df = pd.DataFrame(self.faiss_manager.metadata)
         self.embeddings = self.faiss_manager.embeddings
-        
-        print("New products added successfully")
         
         return {
             'new_products_found': len(new_products_df),

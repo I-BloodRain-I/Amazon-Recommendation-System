@@ -28,7 +28,7 @@ class RecommenderEvaluator:
         top_k: int = 10,
         random_state: int = 42,
         rerank_candidates: Optional[int] = None,
-        rerank_batch_size: int = 32
+        rerank_batch_size: Optional[int] = 32
     ) -> Dict[str, float]:
         """Evaluate recommendations using recall/precision metrics.
         
@@ -69,5 +69,6 @@ class RecommenderEvaluator:
             random_state=random_state,
             reranker=self._recommender.reranker,
             rerank_candidates=rerank_candidates,
-            rerank_batch_size=rerank_batch_size
+            rerank_batch_size=rerank_batch_size,
+            rating_filter_ratio=self._recommender.rating_filter_ratio
         )

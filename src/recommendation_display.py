@@ -4,18 +4,15 @@ from typing import List, Dict
 class RecommendationDisplay:
     """Formatted recommendation output display."""
     
-    def display_recommendations(self, query_product: Dict, similar_products: List[Dict], method: str):
+    def display_recommendations(self, query_product: Dict, similar_products: List[Dict]):
         """Display formatted product recommendations.
         
         Args:
             query_product: Query with parent_asin, title, category, ratings
             similar_products: Results with rank, similarity, metadata
-            method: Label for recommendation method used
         """
         print(f"\n{'='*80}")
-        print(f"Method: {method}")
-        print(f"{'='*80}")
-        print(f"\nQuery Product:")
+        print("Query Product:")
         print(f"  ASIN:     {query_product['parent_asin']}")
         print(f"  Title:    {query_product['title'][:80]}...")
         print(f"  Category: {query_product['main_category']}")

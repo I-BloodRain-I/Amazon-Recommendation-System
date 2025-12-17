@@ -1,0 +1,38 @@
+# Paths
+paths:
+  data_dir: data
+  database_dir: database
+  reviews_file: reviews.csv
+  index_name: faiss_index
+  index_ext: .index
+  metadata_ext: .pkl
+
+# Model settings
+models:
+  sbert_model: all-mpnet-base-v2
+  reranker_model: BAAI/bge-reranker-v2-m3
+
+# Index settings
+index:
+  type: flatip  # Options: flatl2, flatip, ivfflat, hnsw
+  max_products: 10000
+  embedding_batch_size: 50
+
+# Recommendation settings
+recommendation:
+  rerank_candidates: 50
+  rating_filter_ratio: 0.1
+  top_k: 5
+  num_samples: 3
+
+# Evaluation settings
+evaluation:
+  sample_ratio: 1.0
+  max_category_level: 6
+  top_k: 10
+  rerank_batch_size: 64
+
+# General settings
+general:
+  random_seed: 42
+  use_cuda: true

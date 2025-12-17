@@ -2,6 +2,7 @@ import ast
 import numpy as np
 import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
+from tqdm import tqdm
 from typing import List, Set, Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -12,6 +13,8 @@ class SimilarityComputer:
     """Similarity computation and recommendation evaluation."""
     
     __slots__ = ()
+    
+    DEFAULT_RATING_FILTER_RATIO = 0.1
     
     def compute_similarity(self, embeddings: np.ndarray) -> np.ndarray:
         """Compute pairwise cosine similarity.
@@ -71,14 +74,16 @@ class SimilarityComputer:
         """
         return set(categories[:max_level]) if categories else set()
     
-    def _filter_by_rating_weight(self, candidates: List[Dict]) -> List[Dict]:
+    def _filter_by_rating_weight(self, candidates: List[Dict], rating_filter_ratio: float = DEFAULT_RATING_FILTER_RATIO, top_k: int = 5) -> List[Dict]:
         """Filter candidates by rating weight and rating threshold.
         
         Args:
             candidates: List of candidate products with ratings
+            rating_filter_ratio: Fraction of candidates to keep (e.g., 0.1 = top 10%)
+            top_k: Minimum number of candidates to keep
             
         Returns:
-            Filtered list of candidates (top 10% by weight, rating > 3)
+            Filtered list of candidates (ensures at least top_k are available)
         """
         for candidate in candidates:
             avg_rating = candidate.get('average_rating', 0)
@@ -92,7 +97,8 @@ class SimilarityComputer:
             candidate['weight'] = float(avg_rating) * float(rating_num)
         
         candidates_sorted = sorted(candidates, key=lambda x: x['weight'], reverse=True)
-        target_count = max(1, int(len(candidates) * 0.1))
+        ratio_based_count = int(len(candidates) * rating_filter_ratio)
+        target_count = max(top_k, max(1, ratio_based_count))
 
         top_candidates = candidates_sorted[:target_count]
         replacement_pool = candidates_sorted[target_count:]
@@ -121,23 +127,25 @@ class SimilarityComputer:
     def _batch_rerank_for_evaluation(
         self,
         sample_indices: np.ndarray,
-        similarity_matrix: np.ndarray,
+        embeddings_normalized: np.ndarray,
         product_df: pd.DataFrame,
         reranker: 'BGEReranker',
         rerank_candidates: int,
         top_k: int,
-        batch_size: int = 32
+        batch_size: int = 32,
+        rating_filter_ratio: float = DEFAULT_RATING_FILTER_RATIO
     ) -> List[np.ndarray]:
         """Batch process reranking for all evaluation samples.
         
         Args:
             sample_indices: Indices of samples to evaluate
-            similarity_matrix: Precomputed similarity matrix
+            embeddings_normalized: Normalized embeddings (for cosine similarity)
             product_df: Product dataframe
             reranker: BGE reranker instance
             rerank_candidates: Number of candidates before reranking
             top_k: Final number of recommendations
             batch_size: Number of queries to batch together
+            rating_filter_ratio: Fraction of candidates to keep after rating filtering
             
         Returns:
             List of top-k indices arrays (one per sample)
@@ -146,21 +154,20 @@ class SimilarityComputer:
         n_samples = len(sample_indices)
         initial_k = min(rerank_candidates, len(product_df) - 1)
         
-        print(f"Batch reranking {n_samples} queries (batch_size={batch_size})...")
+        print(f"Batch reranking {n_samples:,} queries (batch_size={batch_size})...")
+        
+        pbar = tqdm(total=n_samples, desc="Reranking", unit="queries")
         
         for batch_start in range(0, n_samples, batch_size):
             batch_end = min(batch_start + batch_size, n_samples)
             batch_indices = sample_indices[batch_start:batch_end]
-            
-            if (batch_end) % 200 == 0 or batch_end == n_samples:
-                print(f"Reranking batch {batch_end}/{n_samples}")
             
             query_texts = []
             candidate_texts_list = []
             candidate_idx_mapping = []
             
             for idx in batch_indices:
-                similarities = similarity_matrix[idx].copy()
+                similarities = np.dot(embeddings_normalized, embeddings_normalized[idx])
                 similarities[idx] = -np.inf
                 initial_indices = np.argsort(similarities)[-initial_k:][::-1]
                 
@@ -171,7 +178,7 @@ class SimilarityComputer:
                     candidate['_index'] = candidate_idx
                     candidates.append(candidate)
                 
-                filtered_candidates = self._filter_by_rating_weight(candidates)
+                filtered_candidates = self._filter_by_rating_weight(candidates, rating_filter_ratio, top_k)
                 
                 query_product = product_df.iloc[idx].to_dict()
                 query_text = reranker._prepare_product_text(query_product)
@@ -192,7 +199,10 @@ class SimilarityComputer:
             for results, candidate_indices in zip(batch_results, candidate_idx_mapping):
                 top_k_indices = np.array([candidate_indices[r['original_index']] for r in results])
                 all_top_k_indices.append(top_k_indices)
+            
+            pbar.update(len(batch_indices))
         
+        pbar.close()
         return all_top_k_indices
     
     def compute_metrics(
@@ -206,7 +216,8 @@ class SimilarityComputer:
         random_state: int = 42,
         reranker: Optional['BGEReranker'] = None,
         rerank_candidates: int = 200,
-        rerank_batch_size: int = 32
+        rerank_batch_size: Optional[int] = 32,
+        rating_filter_ratio: float = DEFAULT_RATING_FILTER_RATIO
     ) -> Dict[str, float]:
         """Compute recall/precision metrics with optional reranking.
         
@@ -221,6 +232,7 @@ class SimilarityComputer:
             reranker: BGE reranker instance for result refinement
             rerank_candidates: Initial candidates before reranking (reduce for speed)
             rerank_batch_size: Number of queries to batch for reranking (larger=faster)
+            rating_filter_ratio: Fraction of candidates to keep after rating filtering (e.g., 0.1 = top 10%)
             
         Returns:
             Dict with 'recall', 'precision', 'f1_score', 'valid_samples'
@@ -228,6 +240,9 @@ class SimilarityComputer:
         if categories_column not in product_df.columns:
             print(f"Error: Column '{categories_column}' not found")
             return {'recall': 0.0, 'precision': 0.0, 'f1_score': 0.0, 'valid_samples': 0}
+        
+        if rerank_batch_size is None:
+            rerank_batch_size = 32
         
         max_possible_k = len(product_df) - 1
         if top_k > max_possible_k:
@@ -243,19 +258,20 @@ class SimilarityComputer:
         all_precisions = []
         valid_samples = 0
         
-        similarity_matrix = cosine_similarity(embeddings)
+        embeddings_normalized = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
         
         if reranker is not None:
             all_top_k_indices = self._batch_rerank_for_evaluation(
-                sample_indices, similarity_matrix, product_df, reranker, 
-                rerank_candidates, top_k, rerank_batch_size
+                sample_indices, embeddings_normalized, product_df, reranker, 
+                rerank_candidates, top_k, rerank_batch_size, rating_filter_ratio
             )
         else:
             all_top_k_indices = None
         
+        print("Computing metrics...")
+        pbar = tqdm(total=n_samples, desc="Evaluating", unit="products")
+        
         for i, idx in enumerate(sample_indices):
-            if (i + 1) % 200 == 0:
-                print(f"Processed {i+1}/{n_samples}")
             
             query_categories_str = product_df.iloc[idx][categories_column]
             query_categories = self._parse_categories(query_categories_str)
@@ -267,7 +283,7 @@ class SimilarityComputer:
             if reranker is not None and all_top_k_indices is not None:
                 top_k_indices = all_top_k_indices[i]
             else:
-                similarities = similarity_matrix[idx].copy()
+                similarities = np.dot(embeddings_normalized, embeddings_normalized[idx])
                 similarities[idx] = -np.inf
                 top_k_indices = np.argsort(similarities)[-top_k:][::-1]
             
@@ -319,6 +335,10 @@ class SimilarityComputer:
                 all_recalls.append(recall)
                 all_precisions.append(precision)
                 valid_samples += 1
+            
+            pbar.update(1)
+        
+        pbar.close()
         
         if valid_samples == 0:
             print("Warning: No valid samples found")
