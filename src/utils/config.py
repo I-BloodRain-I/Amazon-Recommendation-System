@@ -20,7 +20,7 @@ class Config:
     
     def _load_config(self):
         """Load configuration from YAML file."""
-        config_path = Path(__file__).parent.parent / 'config.yaml'
+        config_path = Path(__file__).parent.parent.parent / 'config.yaml'
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
         
@@ -51,12 +51,12 @@ class Config:
     @property
     def data_dir(self) -> Path:
         """Get data directory path."""
-        return Path(__file__).parent.parent / self.get('paths.data_dir')
+        return Path(__file__).parent.parent.parent / self.get('paths.data_dir')
     
     @property
     def database_dir(self) -> Path:
         """Get database directory path."""
-        return Path(__file__).parent.parent / self.get('paths.database_dir')
+        return Path(__file__).parent.parent.parent / self.get('paths.database_dir')
     
     @property
     def reviews_file(self) -> str:

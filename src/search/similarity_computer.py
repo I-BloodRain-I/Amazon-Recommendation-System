@@ -6,7 +6,7 @@ from tqdm import tqdm
 from typing import List, Set, Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from reranker import BGEReranker
+    from src.models.reranker import BGEReranker
 
 
 class SimilarityComputer:

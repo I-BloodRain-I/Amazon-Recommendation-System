@@ -50,6 +50,51 @@ class DataLoader:
         except:
             return str(categories_value)
     
+    @staticmethod
+    def _ensure_list_format(cat_value):
+        """Ensure categories are in list format for filtering.
+        
+        Handles both Python list format ['a', 'b', 'c'] and NumPy array format ['a' 'b' 'c']
+        
+        Args:
+            cat_value: Category value from CSV (string or list, including numpy array format)
+            
+        Returns:
+            String representation of a list
+        """
+        import re
+        
+        if pd.isna(cat_value) or cat_value == '':
+            return '[]'
+        try:
+            if not isinstance(cat_value, str):
+                return str([cat_value])
+            
+            # Check if it looks like an array/list format
+            if cat_value.startswith('[') and cat_value.endswith(']'):
+                inner = cat_value[1:-1].strip()
+                
+                # Detect NumPy array format (quotes with spaces, minimal/no commas)
+                if "'" in inner and inner.count("'") >= 2:
+                    # NumPy format has fewer commas than quote pairs
+                    if ',' not in inner or inner.count(',') < (inner.count("'") / 2 - 1):
+                        # Extract quoted strings using regex
+                        matches = re.findall(r"'([^']*)'", inner)
+                        if matches:
+                            return str(matches)
+                
+                # Try standard Python list (comma-separated)
+                try:
+                    parsed = ast.literal_eval(cat_value)
+                    if isinstance(parsed, (list, tuple)):
+                        return str(list(parsed))
+                except:
+                    pass
+            
+            return str([cat_value])
+        except:
+            return str([cat_value])
+    
     def load_data(self, data_path: Path, max_products: Optional[int] = None) -> pd.DataFrame:
         """Load and prepare product data with caching.
         
@@ -80,14 +125,18 @@ class DataLoader:
             df['categories_parsed'].fillna('')
         ).astype(str)
         
+        df['categories_list'] = df['categories'].apply(self._ensure_list_format)
+        
         product_df = df.groupby('parent_asin').agg({
             'title': 'first',
             'main_category': 'first',
             'average_rating': 'first',
             'rating_number': 'first',
             'text_features': 'first',
-            'categories': 'first'
+            'categories_list': 'first'
         }).reset_index()
+        
+        product_df.rename(columns={'categories_list': 'categories'}, inplace=True)
         
         product_df['text_features'] = product_df['text_features'].astype(str)
         

@@ -4,12 +4,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.data_loader import DataLoader
-from src.embedding_generator import EmbeddingGenerator
-from src.recommendation_display import RecommendationDisplay
-from src.faiss_manager import FAISSManager
-from src.similarity_computer import SimilarityComputer
-from src.reranker import BGEReranker
+from src.data.data_loader import DataLoader
+from src.models.embedding_generator import EmbeddingGenerator
+from src.utils.recommendation_display import RecommendationDisplay
+from src.search.faiss_manager import FAISSManager
+from src.search.similarity_computer import SimilarityComputer
+from src.models.reranker import BGEReranker
 
 
 class ProductRecommender:
@@ -19,12 +19,14 @@ class ProductRecommender:
     FIRST_ELEMENT = 0
     DEFAULT_RERANK_CANDIDATES = 200
     DEFAULT_RATING_FILTER_RATIO = 0.1
+    DEFAULT_CATEGORY_DEPTH = 3
     
     def __init__(
         self, 
         reranker_model: str = 'BAAI/bge-reranker-v2-m3', 
         rerank_candidates: int = DEFAULT_RERANK_CANDIDATES, 
         rating_filter_ratio: float = DEFAULT_RATING_FILTER_RATIO,
+        category_depth: int = DEFAULT_CATEGORY_DEPTH,
         device: str = 'cpu'
     ):
         """Initialize recommender with reranker model.
@@ -33,12 +35,14 @@ class ProductRecommender:
             reranker_model: BGE reranker model name
             rerank_candidates: Number of initial candidates to retrieve
             rating_filter_ratio: Fraction of candidates to keep after rating filtering (e.g., 0.1 = top 10%)
+            category_depth: Number of category levels to match (e.g., 3 = first 3 levels)
             device: Computation device ('cpu' or 'cuda')
         """
         self.product_df = None
         self.embeddings = None
         self.rerank_candidates = rerank_candidates
         self.rating_filter_ratio = rating_filter_ratio
+        self.category_depth = category_depth
         self.device = device
         
         self.data_loader = DataLoader()
@@ -120,9 +124,11 @@ class ProductRecommender:
         initial_k = self.rerank_candidates
         results = self.faiss_manager.search_by_index(query_idx, initial_k, same_category_only)
         
-        filtered_results = self._filter_by_rating_weight(results, top_k)
-        
         query_product = self.product_df.iloc[query_idx].to_dict()
+        category_filtered_results = self._filter_by_categories(query_product, results)
+        
+        filtered_results = self._filter_by_rating_weight(category_filtered_results, top_k)
+        
         results = self.reranker.rerank_products(query_product, filtered_results, top_k)
         
         return [{
@@ -136,6 +142,54 @@ class ProductRecommender:
             'rerank_score': result.get('rerank_score', None),
             'original_rank': result.get('original_rank', None)
         } for result in results]
+    
+    def _filter_by_categories(self, query_product: Dict, candidates: List[Dict]) -> List[Dict]:
+        """Filter candidates to keep only those sharing at least N categories with query product.
+        
+        Args:
+            query_product: Query product dictionary with 'categories' field
+            candidates: List of candidate products with 'categories' field
+            
+        Returns:
+            Filtered list of candidates that share at least category_depth categories with query (at any position)
+        """
+        import ast
+        import re
+        
+        def parse_categories(cat_value):
+            """Parse categories handling both list format and concatenated strings from NumPy arrays."""
+            if not cat_value or pd.isna(cat_value):
+                return None
+            
+            try:
+                if isinstance(cat_value, str):
+                    parsed = ast.literal_eval(cat_value)
+                    if isinstance(parsed, (list, tuple)):
+                        if len(parsed) == 1 and isinstance(parsed[0], str):
+                            single_str = parsed[0]
+                            if len(single_str) > 50 and ' ' not in single_str:
+                                return None
+                        return set(str(c).strip() for c in parsed if c)
+                return set(str(cat_value).strip())
+            except:
+                return None
+        
+        query_categories_set = parse_categories(query_product.get('categories', ''))
+        if query_categories_set is None or len(query_categories_set) == 0:
+            return candidates
+        
+        filtered_candidates = []
+        for candidate in candidates:
+            candidate_categories_set = parse_categories(candidate.get('categories', ''))
+            if candidate_categories_set is None or len(candidate_categories_set) == 0:
+                filtered_candidates.append(candidate)
+                continue
+            
+            shared_categories = query_categories_set & candidate_categories_set
+            if len(shared_categories) >= self.category_depth:
+                filtered_candidates.append(candidate)
+        
+        return filtered_candidates
     
     def _filter_by_rating_weight(self, candidates: List[Dict], top_k: int = 5) -> List[Dict]:
         """Filter candidates by rating weight and rating threshold.

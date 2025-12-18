@@ -1,57 +1,12 @@
-import argparse
-import numpy as np
-import random
 import torch
 
-from src.recommender import ProductRecommender
-from src.config import config
+from src.core.recommender import ProductRecommender
+from src.utils.config import config
+from src.utils.cli_parser import parse_build_index_args, set_seed
 
 
-def set_seed(seed: int):
-    """Set random seed for reproducibility.
-    
-    Args:
-        seed: Seed for random, numpy, and torch
-    """
-    random.seed(seed)
-    np.random.seed(seed)
-
-
-def parse_args():
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description='Build FAISS index from product reviews CSV',
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    
-    parser.add_argument('--seed', type=int, default=config.get('general.random_seed'),
-                        help='Random seed for reproducibility')
-    parser.add_argument('--max-products', type=int, default=config.get('index.max_products'),
-                        help='Maximum number of products to load')
-    parser.add_argument('--sbert-model', type=str, default=config.get('models.sbert_model'),
-                        help='Sentence-BERT model name')
-    parser.add_argument('--reranker-model', type=str, default=config.get('models.reranker_model'),
-                        help='BGE reranker model name')
-    parser.add_argument('--rerank-candidates', type=int, default=config.get('recommendation.rerank_candidates'),
-                        help='Number of candidates to rerank')
-    parser.add_argument('--rating-filter-ratio', type=float, default=config.get('recommendation.rating_filter_ratio'),
-                        help='Fraction of candidates to keep after rating filtering (e.g., 0.1 = top 10%%)')
-    parser.add_argument('--index-type', type=str, default=config.get('index.type'),
-                        choices=['flatl2', 'flatip', 'ivfflat', 'hnsw'],
-                        help='FAISS index type')
-    parser.add_argument('--embedding-batch-size', type=int, default=config.get('index.embedding_batch_size'),
-                        help='Batch size for embedding generation')
-    parser.add_argument('--update', action='store_true',
-                        help='Update existing index with new products')
-    parser.add_argument('--no-cuda', action='store_true',
-                        help='Disable CUDA even if available')
-    
-    return parser.parse_args()
-
-
-def main():
-    """Build or update FAISS index from CSV."""
-    args = parse_args()
+if __name__ == '__main__':
+    args = parse_build_index_args()
     set_seed(args.seed)
     
     use_cuda = not args.no_cuda
@@ -61,13 +16,14 @@ def main():
     data_path = config.data_dir / 'raw' / config.reviews_file
     if not data_path.exists():
         print(f"Error: Data file not found: {data_path}")
-        return
+        exit(0)
     
     faiss_path = config.database_dir / config.index_name
     recommender = ProductRecommender(
         reranker_model=args.reranker_model,
         rerank_candidates=args.rerank_candidates,
         rating_filter_ratio=args.rating_filter_ratio,
+        category_depth=args.category_depth,
         device=device
     )
     
@@ -101,7 +57,3 @@ def main():
     print(f"\nFinal index: {stats['total_vectors']:,} vectors, dim={stats['dimension']}, type={stats['index_type']}")
     print(f"Saved to: {faiss_path}")
     print("\nYou can now run: python predict.py")
-
-
-if __name__ == '__main__':
-    main()

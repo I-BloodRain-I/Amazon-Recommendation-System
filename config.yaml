@@ -24,6 +24,7 @@ recommendation:
   rating_filter_ratio: 0.1
   top_k: 5
   num_samples: 3
+  category_depth: 3  # Number of category levels to match (e.g., 3 = Electronics > Audio > Headphones)
 
 # Evaluation settings
 evaluation:

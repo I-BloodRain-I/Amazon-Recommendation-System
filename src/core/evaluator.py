@@ -1,9 +1,9 @@
 from typing import Dict, Optional, TYPE_CHECKING
 
-from src.similarity_computer import SimilarityComputer
+from src.search.similarity_computer import SimilarityComputer
 
 if TYPE_CHECKING:
-    from src.recommender import ProductRecommender
+    from src.core.recommender import ProductRecommender
 
 
 class RecommenderEvaluator:
